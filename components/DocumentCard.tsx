@@ -24,24 +24,44 @@ export default function DocumentCard({ docType, filePath, userId, onDelete, onUp
 
     useEffect(() => {
         const fetchAndDecrypt = async () => {
+            // 1. Check if the vault is actually unlocked
             if (!encryptionKey) {
-                setError("Vault locked. Missing key.");
+                setError("Vault locked. Enter PIN.");
                 setLoading(false);
                 return;
             }
 
             try {
                 setLoading(true);
-                const { data, error: downloadError } = await supabase.storage.from('documents').download(filePath);
-                if (downloadError) throw downloadError;
+                setError(null); // Clear previous errors on retry
 
+                // 2. Download the encrypted blob from Supabase
+                const { data, error: downloadError } = await supabase.storage
+                    .from('documents')
+                    .download(filePath);
+
+                if (downloadError) {
+                    // Handle 404 or Network errors
+                    if (downloadError.message.includes("404")) throw new Error("FILE_NOT_FOUND");
+                    throw downloadError;
+                }
+
+                // 3. Decrypt the file locally
                 if (data) {
                     const decryptedUrl = await decryptDocument(data, encryptionKey);
                     setImageUrl(decryptedUrl);
                 }
             } catch (err: any) {
-                console.error("Error fetching document:", err);
-                setError("Failed to load or decrypt.");
+                console.error("DocumentCard Error:", err);
+
+                // 4. Specific Error Handling
+                if (err.message === "INVALID_KEY") {
+                    setError("Incorrect PIN. Decryption failed.");
+                } else if (err.message === "FILE_NOT_FOUND") {
+                    setError("Document missing from vault.");
+                } else {
+                    setError("Failed to load or decrypt.");
+                }
             } finally {
                 setLoading(false);
             }
@@ -49,8 +69,11 @@ export default function DocumentCard({ docType, filePath, userId, onDelete, onUp
 
         fetchAndDecrypt();
 
+        // 5. Memory Management: Clean up the Blob URL when card unmounts
         return () => {
-            if (imageUrl) URL.revokeObjectURL(imageUrl);
+            if (imageUrl) {
+                URL.revokeObjectURL(imageUrl);
+            }
         };
     }, [filePath, encryptionKey]);
 

@@ -56,22 +56,32 @@ export async function processAndEncryptDocument(file: File, key: CryptoKey): Pro
     });
 }
 
-// --- 3. DECRYPTION (For Viewing) ---
+// --- 3. DECRYPTION (With Error Handling) ---
 export async function decryptDocument(encryptedBlob: Blob, key: CryptoKey): Promise<string> {
-    const arrayBuffer = await encryptedBlob.arrayBuffer();
+    try {
+        const arrayBuffer = await encryptedBlob.arrayBuffer();
 
-    // Extract the IV (first 12 bytes) and the Ciphertext (the rest)
-    const iv = arrayBuffer.slice(0, 12);
-    const data = arrayBuffer.slice(12);
+        if (arrayBuffer.byteLength < 13) {
+            throw new Error("File is too small or corrupted.");
+        }
 
-    // Decrypt
-    const decryptedContent = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: new Uint8Array(iv) },
-        key,
-        data
-    );
+        const iv = arrayBuffer.slice(0, 12);
+        const data = arrayBuffer.slice(12);
 
-    // Convert back to an image URL for the browser to render
-    const decryptedBlob = new Blob([decryptedContent], { type: 'image/jpeg' });
-    return URL.createObjectURL(decryptedBlob);
+        // This is where the math fails if the PIN/Key is wrong
+        const decryptedContent = await crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: new Uint8Array(iv) },
+            key,
+            data
+        );
+
+        const decryptedBlob = new Blob([decryptedContent], { type: 'image/jpeg' });
+        return URL.createObjectURL(decryptedBlob);
+    } catch (error: any) {
+        // Detect if it's a "Wrong PIN" error
+        if (error.name === "OperationError") {
+            throw new Error("INVALID_KEY"); // Custom code for our UI to catch
+        }
+        throw new Error("DECRYPTION_FAILED");
+    }
 }

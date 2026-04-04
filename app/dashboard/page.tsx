@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { deriveKeyFromPassword, processAndEncryptDocument } from '@/lib/cryptoSetup';
+import { deriveKeyFromPassword, processAndEncryptDocument, decryptDocument } from '@/lib/cryptoSetup';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useRouter } from 'next/navigation';
 import DocumentCard from '@/components/DocumentCard'; // Make sure this is imported!
@@ -15,6 +15,7 @@ export default function Dashboard() {
     const [userEmail, setUserEmail] = useState<string | null>(null);
     const [userId, setUserId] = useState<string | null>(null);
     const [pinInput, setPinInput] = useState('');
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const router = useRouter();
     const encryptionKey = useAuthStore((state) => state.encryptionKey);
@@ -48,8 +49,28 @@ export default function Dashboard() {
     const unlockVault = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!userEmail) return;
-        const key = await deriveKeyFromPassword(pinInput, userEmail);
-        setEncryptionKey(key);
+
+        try {
+            setIsProcessing(true); // Add a loading state for the button
+            const key = await deriveKeyFromPassword(pinInput, userEmail);
+
+            // TEST DECRYPTION: Try to fetch at least one file to verify the key
+            const { data } = await supabase.storage.from('documents').list(`${userId}/`, { limit: 1 });
+
+            if (data && data.length > 0) {
+                const testFile = await supabase.storage.from('documents').download(`${userId}/${data[0].name}`);
+                if (testFile.data) {
+                    await decryptDocument(testFile.data, key); // This will throw if key is wrong
+                }
+            }
+
+            setEncryptionKey(key); // Key is verified, save to Zustand
+        } catch (err: any) {
+            alert("Incorrect PIN/Password. Please try again.");
+            setPinInput(""); // Clear the input
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     const handleFileChange = (type: string, file: File | null) => {
@@ -96,8 +117,11 @@ export default function Dashboard() {
                         className="w-full mb-4 p-3 border rounded-lg"
                         onChange={(e) => setPinInput(e.target.value)}
                     />
-                    <button className="w-full bg-blue-600 text-white font-medium py-3 rounded-lg hover:bg-blue-700">
-                        Decrypt Vault
+                    <button
+                        disabled={isProcessing}
+                        className={`w-full text-white font-medium py-3 rounded-lg ${isProcessing ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                    >
+                        {isProcessing ? 'Decrypting...' : 'Decrypt Vault'}
                     </button>
                 </form>
             </div>
