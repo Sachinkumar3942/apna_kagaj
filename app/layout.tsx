@@ -4,6 +4,9 @@ import type { Metadata } from 'next';
 export const metadata: Metadata = {
   title: 'Apna Kagaj - Secure Identity Vault',
   description: 'Zero-Knowledge encrypted document storage for financial identity.',
+  verification: {
+    google: 'WpCqfFFFeXPR31nEzU3V1FTCQq1P_NwNK28FxIknOsk',
+  },
 };
 
 export default function RootLayout({
